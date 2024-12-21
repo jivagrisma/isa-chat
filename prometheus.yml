@@ -1,0 +1,112 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+      scheme: http
+      timeout: 10s
+      api_version: v1
+
+rule_files: []
+
+scrape_configs:
+  # Backend FastAPI
+  - job_name: 'isa-backend'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['backend:8000']
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    metrics_path: '/metrics'
+    scheme: http
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+)(?::\\d+)?'
+        replacement: '${1}'
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # PostgreSQL
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['db:5432']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Prometheus auto-monitoreo
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+# Reglas de alerta (ejemplos)
+alerting_rules:
+  groups:
+    - name: 'backend_alerts'
+      rules:
+        - alert: HighRequestLatency
+          expr: http_request_duration_seconds{quantile="0.9"} > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alta latencia en las solicitudes"
+            description: "El 90% de las solicitudes están tomando más de 1 segundo"
+
+        - alert: HighErrorRate
+          expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Alta tasa de errores"
+            description: "Más del 10% de las solicitudes están resultando en errores 5xx"
+
+        - alert: HighMemoryUsage
+          expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alto uso de memoria"
+            description: "El uso de memoria está por encima del 90%"
+
+        - alert: HighCPUUsage
+          expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alto uso de CPU"
+            description: "El uso de CPU está por encima del 90%"
+
+# Configuración de almacenamiento
+storage:
+  tsdb:
+    retention_time: 15d
+    retention_size: 5GB
+
+# Configuración de límites
+limits:
+  max_samples_per_query: 50000000
+  max_series_per_query: 100000
+  max_samples_per_send: 20000000
+
+# Configuración de web
+web:
+  console:
+    templates: /etc/prometheus/consoles
+    libraries: /etc/prometheus/console_libraries
+  cors:
+    origin: '*'
